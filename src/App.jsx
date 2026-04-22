@@ -2,8 +2,8 @@ import { useMemo, useState } from 'react'
 import { initialIngredients, menuItems } from './data'
 
 const STORAGE_KEY = 'erp-coffee-v2'
-const DEFAULT_IMAGE =
-  'https://images.unsplash.com/photo-1512568400610-62da28bc8a13?auto=format&fit=crop&w=800&q=80'
+const DEFAULT_PRODUCT_IMAGE = '/images/drink-coffee.svg'
+const DEFAULT_INGREDIENT_IMAGE = '/images/ingredient-stock.svg'
 
 function loadState() {
   try {
@@ -17,9 +17,23 @@ function loadState() {
     }
 
     const parsed = JSON.parse(raw)
+    const rawIngredients = Array.isArray(parsed.ingredients) ? parsed.ingredients : initialIngredients
+    const rawMenu = Array.isArray(parsed.menu) ? parsed.menu : menuItems
     return {
-      ingredients: Array.isArray(parsed.ingredients) ? parsed.ingredients : initialIngredients,
-      menu: Array.isArray(parsed.menu) ? parsed.menu : menuItems,
+      ingredients: rawIngredients.map((ingredient) => ({
+        ...ingredient,
+        image:
+          typeof ingredient.image === 'string' && ingredient.image.startsWith('http')
+            ? DEFAULT_INGREDIENT_IMAGE
+            : ingredient.image || DEFAULT_INGREDIENT_IMAGE,
+      })),
+      menu: rawMenu.map((item) => ({
+        ...item,
+        image:
+          typeof item.image === 'string' && item.image.startsWith('http')
+            ? DEFAULT_PRODUCT_IMAGE
+            : item.image || DEFAULT_PRODUCT_IMAGE,
+      })),
       orders: Array.isArray(parsed.orders) ? parsed.orders : [],
     }
   } catch (error) {
@@ -49,20 +63,24 @@ function App() {
   const [notice, setNotice] = useState('')
   const [page, setPage] = useState('menu')
   const [selectedItem, setSelectedItem] = useState(null)
-  const [newIngredient, setNewIngredient] = useState({
+  const [modalType, setModalType] = useState(null)
+  const [modalError, setModalError] = useState('')
+  const [thresholdIngredientId, setThresholdIngredientId] = useState('')
+  const [thresholdValue, setThresholdValue] = useState('')
+  const [productForm, setProductForm] = useState({
+    name: '',
+    price: '',
+    image: '',
+    recipeRows: [{ ingredientId: '', amount: '' }],
+  })
+  const [ingredientForm, setIngredientForm] = useState({
     name: '',
     unit: 'г',
     stock: '',
     lowThreshold: '',
     image: '',
   })
-  const [stockTopUp, setStockTopUp] = useState({ ingredientId: '', amount: '' })
-  const [newProduct, setNewProduct] = useState({
-    name: '',
-    price: '',
-    image: '',
-    recipeRows: [{ ingredientId: '', amount: '' }],
-  })
+  const [topUpForm, setTopUpForm] = useState({ ingredientId: '', amount: '' })
 
   const ingredientMap = useMemo(() => {
     return state.ingredients.reduce((acc, ingredient) => {
@@ -91,6 +109,16 @@ function App() {
   const lowStockWarnings = useMemo(() => {
     return state.ingredients.filter((ingredient) => ingredient.stock <= ingredient.lowThreshold)
   }, [state.ingredients])
+
+  function openModal(type) {
+    setModalType(type)
+    setModalError('')
+  }
+
+  function closeModal() {
+    setModalType(null)
+    setModalError('')
+  }
 
   function createOrder(item) {
     const missing = item.recipe
@@ -135,19 +163,30 @@ function App() {
 
   function handleAddIngredient(event) {
     event.preventDefault()
-    if (!newIngredient.name.trim() || !newIngredient.unit.trim()) return
+    if (
+      !ingredientForm.name.trim() ||
+      !ingredientForm.unit.trim() ||
+      ingredientForm.stock === '' ||
+      ingredientForm.lowThreshold === ''
+    ) {
+      setModalError('Заполните название, единицу, остаток и порог.')
+      return
+    }
 
-    const stock = Number(newIngredient.stock)
-    const threshold = Number(newIngredient.lowThreshold)
-    if (Number.isNaN(stock) || Number.isNaN(threshold)) return
+    const stock = Number(ingredientForm.stock)
+    const threshold = Number(ingredientForm.lowThreshold)
+    if (Number.isNaN(stock) || Number.isNaN(threshold)) {
+      setModalError('Остаток и порог должны быть числами.')
+      return
+    }
 
     const ingredient = {
-      id: `${newIngredient.name.trim().toLowerCase().replaceAll(' ', '_')}_${Date.now()}`,
-      name: newIngredient.name.trim(),
-      unit: newIngredient.unit.trim(),
+      id: `${ingredientForm.name.trim().toLowerCase().replaceAll(' ', '_')}_${Date.now()}`,
+      name: ingredientForm.name.trim(),
+      unit: ingredientForm.unit.trim(),
       stock,
       lowThreshold: threshold,
-      image: newIngredient.image.trim() || DEFAULT_IMAGE,
+      image: ingredientForm.image.trim() || DEFAULT_INGREDIENT_IMAGE,
     }
 
     const nextState = {
@@ -157,29 +196,38 @@ function App() {
     setState(nextState)
     saveState(nextState)
     setNotice(`Ингредиент "${ingredient.name}" добавлен.`)
-    setNewIngredient({ name: '', unit: 'г', stock: '', lowThreshold: '', image: '' })
+    setIngredientForm({ name: '', unit: 'г', stock: '', lowThreshold: '', image: '' })
+    closeModal()
   }
 
   function handleTopUp(event) {
     event.preventDefault()
-    const amount = Number(stockTopUp.amount)
-    if (!stockTopUp.ingredientId || Number.isNaN(amount) || amount <= 0) return
+    const amount = Number(topUpForm.amount)
+    if (!topUpForm.ingredientId || topUpForm.amount === '') {
+      setModalError('Выберите ингредиент и укажите количество.')
+      return
+    }
+    if (Number.isNaN(amount) || amount <= 0) {
+      setModalError('Количество для закупки должно быть больше нуля.')
+      return
+    }
 
     const updatedIngredients = state.ingredients.map((ingredient) => {
-      if (ingredient.id !== stockTopUp.ingredientId) return ingredient
+      if (ingredient.id !== topUpForm.ingredientId) return ingredient
       return { ...ingredient, stock: ingredient.stock + amount }
     })
 
     const nextState = { ...state, ingredients: updatedIngredients }
     setState(nextState)
     saveState(nextState)
-    const ingredientName = ingredientMap[stockTopUp.ingredientId]?.name ?? 'ингредиент'
+    const ingredientName = ingredientMap[topUpForm.ingredientId]?.name ?? 'ингредиент'
     setNotice(`Закупка выполнена: +${amount} к "${ingredientName}".`)
-    setStockTopUp({ ingredientId: '', amount: '' })
+    setTopUpForm({ ingredientId: '', amount: '' })
+    closeModal()
   }
 
   function updateRecipeRow(index, field, value) {
-    setNewProduct((prev) => ({
+    setProductForm((prev) => ({
       ...prev,
       recipeRows: prev.recipeRows.map((row, rowIndex) => {
         if (rowIndex !== index) return row
@@ -189,7 +237,7 @@ function App() {
   }
 
   function addRecipeRow() {
-    setNewProduct((prev) => ({
+    setProductForm((prev) => ({
       ...prev,
       recipeRows: [...prev.recipeRows, { ingredientId: '', amount: '' }],
     }))
@@ -197,24 +245,33 @@ function App() {
 
   function handleAddProduct(event) {
     event.preventDefault()
-    if (!newProduct.name.trim()) return
-    const price = Number(newProduct.price)
-    if (Number.isNaN(price)) return
+    if (!productForm.name.trim() || productForm.price === '') {
+      setModalError('Заполните название и цену товара.')
+      return
+    }
+    const price = Number(productForm.price)
+    if (Number.isNaN(price) || price < 0) {
+      setModalError('Цена должна быть положительным числом.')
+      return
+    }
 
-    const recipe = newProduct.recipeRows
+    const recipe = productForm.recipeRows
       .map((row) => ({
         ingredientId: row.ingredientId,
         amount: Number(row.amount),
       }))
       .filter((row) => row.ingredientId && !Number.isNaN(row.amount) && row.amount > 0)
 
-    if (recipe.length === 0) return
+    if (recipe.length === 0) {
+      setModalError('Добавьте хотя бы один ингредиент в рецепт.')
+      return
+    }
 
     const product = {
-      id: `${newProduct.name.trim().toLowerCase().replaceAll(' ', '_')}_${Date.now()}`,
-      name: newProduct.name.trim(),
+      id: `${productForm.name.trim().toLowerCase().replaceAll(' ', '_')}_${Date.now()}`,
+      name: productForm.name.trim(),
       price,
-      image: newProduct.image.trim() || DEFAULT_IMAGE,
+      image: productForm.image.trim() || DEFAULT_PRODUCT_IMAGE,
       recipe,
     }
 
@@ -225,19 +282,50 @@ function App() {
     setState(nextState)
     saveState(nextState)
     setNotice(`Товар "${product.name}" добавлен в меню.`)
-    setNewProduct({
+    setProductForm({
       name: '',
       price: '',
       image: '',
       recipeRows: [{ ingredientId: '', amount: '' }],
     })
+    closeModal()
+  }
+
+  function openThresholdModal(ingredient) {
+    setThresholdIngredientId(ingredient.id)
+    setThresholdValue(String(ingredient.lowThreshold))
+    openModal('threshold')
+  }
+
+  function handleUpdateThreshold(event) {
+    event.preventDefault()
+    if (!thresholdIngredientId || thresholdValue === '') {
+      setModalError('Укажите новый порог.')
+      return
+    }
+    const nextThreshold = Number(thresholdValue)
+    if (Number.isNaN(nextThreshold) || nextThreshold < 0) {
+      setModalError('Порог должен быть неотрицательным числом.')
+      return
+    }
+
+    const updatedIngredients = state.ingredients.map((ingredient) => {
+      if (ingredient.id !== thresholdIngredientId) return ingredient
+      return { ...ingredient, lowThreshold: nextThreshold }
+    })
+
+    const nextState = { ...state, ingredients: updatedIngredients }
+    setState(nextState)
+    saveState(nextState)
+    setNotice('Порог предупреждения обновлен.')
+    closeModal()
   }
 
   return (
     <main className="app">
-      <section className="left-panel full-width">
+      <section className={page === 'ingredients' ? 'left-panel full-width' : 'left-panel'}>
         <header className="page-header">
-          <h1>ERP Coffee V2</h1>
+          <h1>ERP Coffee V3</h1>
           <p>Товары и ингредиенты на отдельных страницах. Все изменения сохраняются локально.</p>
           <div className="nav-row">
             <button type="button" className={page === 'menu' ? 'tab-btn active' : 'tab-btn'} onClick={() => setPage('menu')}>
@@ -257,6 +345,13 @@ function App() {
 
         {page === 'menu' ? (
           <>
+            <section className="panel-block">
+              <h3>Управление товарами</h3>
+              <button type="button" onClick={() => openModal('product')}>
+                Добавить товар
+              </button>
+            </section>
+
             <div className="menu-grid">
               {menuWithAvailability.map((item) => (
                 <article key={item.id} className="menu-card">
@@ -279,139 +374,52 @@ function App() {
                 </article>
               ))}
             </div>
-
-            <section className="panel-block">
-              <h3>Добавить новый товар</h3>
-              <form className="form-grid" onSubmit={handleAddProduct}>
-                <input
-                  placeholder="Название товара"
-                  value={newProduct.name}
-                  onChange={(event) => setNewProduct((prev) => ({ ...prev, name: event.target.value }))}
-                />
-                <input
-                  type="number"
-                  placeholder="Цена"
-                  value={newProduct.price}
-                  onChange={(event) => setNewProduct((prev) => ({ ...prev, price: event.target.value }))}
-                />
-                <input
-                  placeholder="Ссылка на картинку (URL)"
-                  value={newProduct.image}
-                  onChange={(event) => setNewProduct((prev) => ({ ...prev, image: event.target.value }))}
-                />
-
-                <div className="recipe-editor">
-                  <p>Рецепт товара:</p>
-                  {newProduct.recipeRows.map((row, index) => (
-                    <div key={`recipe-${index}`} className="recipe-row">
-                      <select
-                        value={row.ingredientId}
-                        onChange={(event) => updateRecipeRow(index, 'ingredientId', event.target.value)}
-                      >
-                        <option value="">Выберите ингредиент</option>
-                        {state.ingredients.map((ingredient) => (
-                          <option key={ingredient.id} value={ingredient.id}>
-                            {ingredient.name}
-                          </option>
-                        ))}
-                      </select>
-                      <input
-                        type="number"
-                        placeholder="Количество"
-                        value={row.amount}
-                        onChange={(event) => updateRecipeRow(index, 'amount', event.target.value)}
-                      />
-                    </div>
-                  ))}
-                  <button type="button" className="secondary-btn" onClick={addRecipeRow}>
-                    Добавить строку рецепта
-                  </button>
-                </div>
-
-                <button type="submit">Добавить товар</button>
-              </form>
-            </section>
           </>
         ) : (
           <>
-            <div className="menu-grid">
-              {state.ingredients.map((ingredient) => (
-                <article key={ingredient.id} className="menu-card">
-                  <img src={ingredient.image || DEFAULT_IMAGE} alt={ingredient.name} className="menu-image" />
-                  <div className="menu-card-body">
-                    <h2>{ingredient.name}</h2>
-                    <p>
-                      Остаток: {ingredient.stock} {ingredient.unit}
-                    </p>
-                    <p className={ingredient.stock <= ingredient.lowThreshold ? 'warning-text' : 'ok-status'}>
-                      Порог: {ingredient.lowThreshold} {ingredient.unit}
-                    </p>
+            <div className="ingredients-layout">
+              <div className="menu-grid">
+                {state.ingredients.map((ingredient) => (
+                  <article key={ingredient.id} className="menu-card">
+                    <img
+                      src={ingredient.image || DEFAULT_INGREDIENT_IMAGE}
+                      alt={ingredient.name}
+                      className="menu-image"
+                    />
+                    <div className="menu-card-body">
+                      <h2>{ingredient.name}</h2>
+                      <p>
+                        Остаток: {ingredient.stock} {ingredient.unit}
+                      </p>
+                      <p className={ingredient.stock <= ingredient.lowThreshold ? 'warning-text' : 'ok-status'}>
+                        Порог: {ingredient.lowThreshold} {ingredient.unit}
+                      </p>
+                      <button
+                        type="button"
+                        className="secondary-btn threshold-btn"
+                        onClick={() => openThresholdModal(ingredient)}
+                      >
+                        Изменить порог
+                      </button>
+                    </div>
+                  </article>
+                ))}
+              </div>
+
+              <aside className="right-panel">
+                <section className="panel-block">
+                  <h3>Управление ингредиентами</h3>
+                  <div className="ingredients-actions">
+                    <button type="button" onClick={() => openModal('ingredient')}>
+                      Добавить ингредиент
+                    </button>
+                    <button type="button" onClick={() => openModal('topup')}>
+                      Открыть закупку
+                    </button>
                   </div>
-                </article>
-              ))}
+                </section>
+              </aside>
             </div>
-
-            <section className="panel-block two-cols">
-              <div>
-                <h3>Добавить ингредиент</h3>
-                <form className="form-grid" onSubmit={handleAddIngredient}>
-                  <input
-                    placeholder="Название"
-                    value={newIngredient.name}
-                    onChange={(event) => setNewIngredient((prev) => ({ ...prev, name: event.target.value }))}
-                  />
-                  <input
-                    placeholder="Единица (г, мл, шт...)"
-                    value={newIngredient.unit}
-                    onChange={(event) => setNewIngredient((prev) => ({ ...prev, unit: event.target.value }))}
-                  />
-                  <input
-                    type="number"
-                    placeholder="Начальный остаток"
-                    value={newIngredient.stock}
-                    onChange={(event) => setNewIngredient((prev) => ({ ...prev, stock: event.target.value }))}
-                  />
-                  <input
-                    type="number"
-                    placeholder="Порог предупреждения"
-                    value={newIngredient.lowThreshold}
-                    onChange={(event) =>
-                      setNewIngredient((prev) => ({ ...prev, lowThreshold: event.target.value }))
-                    }
-                  />
-                  <input
-                    placeholder="Ссылка на картинку (URL)"
-                    value={newIngredient.image}
-                    onChange={(event) => setNewIngredient((prev) => ({ ...prev, image: event.target.value }))}
-                  />
-                  <button type="submit">Добавить ингредиент</button>
-                </form>
-              </div>
-
-              <div>
-                <h3>Докупка ингредиента</h3>
-                <form className="form-grid" onSubmit={handleTopUp}>
-                  <select
-                    value={stockTopUp.ingredientId}
-                    onChange={(event) => setStockTopUp((prev) => ({ ...prev, ingredientId: event.target.value }))}
-                  >
-                    <option value="">Выберите ингредиент</option>
-                    {state.ingredients.map((ingredient) => (
-                      <option key={ingredient.id} value={ingredient.id}>
-                        {ingredient.name}
-                      </option>
-                    ))}
-                  </select>
-                  <input
-                    type="number"
-                    placeholder="Сколько докупили"
-                    value={stockTopUp.amount}
-                    onChange={(event) => setStockTopUp((prev) => ({ ...prev, amount: event.target.value }))}
-                  />
-                  <button type="submit">Сохранить закупку</button>
-                </form>
-              </div>
-            </section>
           </>
         )}
       </section>
@@ -483,6 +491,152 @@ function App() {
               ))}
             </ul>
             <button type="button" onClick={() => setSelectedItem(null)}>
+              Закрыть
+            </button>
+          </div>
+        </div>
+      )}
+
+      {modalType && (
+        <div className="modal-backdrop" onClick={closeModal}>
+          <div className="modal" onClick={(event) => event.stopPropagation()}>
+            {modalType === 'product' && (
+              <>
+                <h3>Добавить товар</h3>
+                <form className="form-grid" onSubmit={handleAddProduct}>
+                  <input
+                    placeholder="Название товара"
+                    value={productForm.name}
+                    onChange={(event) => setProductForm((prev) => ({ ...prev, name: event.target.value }))}
+                  />
+                  <input
+                    type="number"
+                    placeholder="Цена"
+                    value={productForm.price}
+                    onChange={(event) => setProductForm((prev) => ({ ...prev, price: event.target.value }))}
+                  />
+                  <input
+                    placeholder="Путь к картинке (по умолчанию локальная)"
+                    value={productForm.image}
+                    onChange={(event) => setProductForm((prev) => ({ ...prev, image: event.target.value }))}
+                  />
+
+                  <div className="recipe-editor">
+                    <p>Рецепт товара:</p>
+                    {productForm.recipeRows.map((row, index) => (
+                      <div key={`recipe-${index}`} className="recipe-row">
+                        <select
+                          value={row.ingredientId}
+                          onChange={(event) => updateRecipeRow(index, 'ingredientId', event.target.value)}
+                        >
+                          <option value="">Выберите ингредиент</option>
+                          {state.ingredients.map((ingredient) => (
+                            <option key={ingredient.id} value={ingredient.id}>
+                              {ingredient.name}
+                            </option>
+                          ))}
+                        </select>
+                        <input
+                          type="number"
+                          placeholder="Количество"
+                          value={row.amount}
+                          onChange={(event) => updateRecipeRow(index, 'amount', event.target.value)}
+                        />
+                      </div>
+                    ))}
+                    <button type="button" className="secondary-btn" onClick={addRecipeRow}>
+                      Добавить строку рецепта
+                    </button>
+                  </div>
+                  {modalError && <p className="warning-text">{modalError}</p>}
+                  <button type="submit">Сохранить товар</button>
+                </form>
+              </>
+            )}
+
+            {modalType === 'ingredient' && (
+              <>
+                <h3>Добавить ингредиент</h3>
+                <form className="form-grid" onSubmit={handleAddIngredient}>
+                  <input
+                    placeholder="Название"
+                    value={ingredientForm.name}
+                    onChange={(event) => setIngredientForm((prev) => ({ ...prev, name: event.target.value }))}
+                  />
+                  <input
+                    placeholder="Единица (г, мл, шт...)"
+                    value={ingredientForm.unit}
+                    onChange={(event) => setIngredientForm((prev) => ({ ...prev, unit: event.target.value }))}
+                  />
+                  <input
+                    type="number"
+                    placeholder="Начальный остаток"
+                    value={ingredientForm.stock}
+                    onChange={(event) => setIngredientForm((prev) => ({ ...prev, stock: event.target.value }))}
+                  />
+                  <input
+                    type="number"
+                    placeholder="Порог предупреждения"
+                    value={ingredientForm.lowThreshold}
+                    onChange={(event) =>
+                      setIngredientForm((prev) => ({ ...prev, lowThreshold: event.target.value }))
+                    }
+                  />
+                  <input
+                    placeholder="Путь к картинке (по умолчанию локальная)"
+                    value={ingredientForm.image}
+                    onChange={(event) => setIngredientForm((prev) => ({ ...prev, image: event.target.value }))}
+                  />
+                  {modalError && <p className="warning-text">{modalError}</p>}
+                  <button type="submit">Сохранить ингредиент</button>
+                </form>
+              </>
+            )}
+
+            {modalType === 'topup' && (
+              <>
+                <h3>Докупка ингредиента</h3>
+                <form className="form-grid" onSubmit={handleTopUp}>
+                  <select
+                    value={topUpForm.ingredientId}
+                    onChange={(event) => setTopUpForm((prev) => ({ ...prev, ingredientId: event.target.value }))}
+                  >
+                    <option value="">Выберите ингредиент</option>
+                    {state.ingredients.map((ingredient) => (
+                      <option key={ingredient.id} value={ingredient.id}>
+                        {ingredient.name}
+                      </option>
+                    ))}
+                  </select>
+                  <input
+                    type="number"
+                    placeholder="Сколько докупили"
+                    value={topUpForm.amount}
+                    onChange={(event) => setTopUpForm((prev) => ({ ...prev, amount: event.target.value }))}
+                  />
+                  {modalError && <p className="warning-text">{modalError}</p>}
+                  <button type="submit">Сохранить закупку</button>
+                </form>
+              </>
+            )}
+
+            {modalType === 'threshold' && (
+              <>
+                <h3>Изменить порог предупреждения</h3>
+                <form className="form-grid" onSubmit={handleUpdateThreshold}>
+                  <input
+                    type="number"
+                    placeholder="Новый порог"
+                    value={thresholdValue}
+                    onChange={(event) => setThresholdValue(event.target.value)}
+                  />
+                  {modalError && <p className="warning-text">{modalError}</p>}
+                  <button type="submit">Сохранить порог</button>
+                </form>
+              </>
+            )}
+
+            <button type="button" className="secondary-btn" onClick={closeModal}>
               Закрыть
             </button>
           </div>
