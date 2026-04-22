@@ -1,9 +1,49 @@
 export const initialIngredients = [
-  { id: 'coffee_beans', name: 'Кофейные зерна', unit: 'г', stock: 1200, lowThreshold: 250 },
-  { id: 'milk', name: 'Молоко', unit: 'мл', stock: 5000, lowThreshold: 1200 },
-  { id: 'water', name: 'Вода', unit: 'мл', stock: 12000, lowThreshold: 2500 },
-  { id: 'cups', name: 'Стаканы 300мл', unit: 'шт', stock: 120, lowThreshold: 20 },
-  { id: 'sugar', name: 'Сахар', unit: 'г', stock: 2500, lowThreshold: 400 },
+  {
+    id: 'coffee_beans',
+    name: 'Кофейные зерна',
+    unit: 'г',
+    stock: 1200,
+    lowThreshold: 250,
+    image:
+      'https://images.unsplash.com/photo-1447933601403-0c6688de566e?auto=format&fit=crop&w=800&q=80',
+  },
+  {
+    id: 'milk',
+    name: 'Молоко',
+    unit: 'мл',
+    stock: 5000,
+    lowThreshold: 1200,
+    image:
+      'https://images.unsplash.com/photo-1550583724-b2692b85b150?auto=format&fit=crop&w=800&q=80',
+  },
+  {
+    id: 'water',
+    name: 'Вода',
+    unit: 'мл',
+    stock: 12000,
+    lowThreshold: 2500,
+    image:
+      'https://images.unsplash.com/photo-1564417947365-8dbc9d0e718e?auto=format&fit=crop&w=800&q=80',
+  },
+  {
+    id: 'cups',
+    name: 'Стаканы 300мл',
+    unit: 'шт',
+    stock: 120,
+    lowThreshold: 20,
+    image:
+      'https://images.unsplash.com/photo-1470337458703-46ad1756a187?auto=format&fit=crop&w=800&q=80',
+  },
+  {
+    id: 'sugar',
+    name: 'Сахар',
+    unit: 'г',
+    stock: 2500,
+    lowThreshold: 400,
+    image:
+      'https://images.unsplash.com/photo-1581441363689-1f3c3c414635?auto=format&fit=crop&w=800&q=80',
+  },
 ]
 
 export const menuItems = [
