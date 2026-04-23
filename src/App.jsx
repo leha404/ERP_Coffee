@@ -245,17 +245,23 @@ function App() {
 
   function handleAddProduct(event) {
     event.preventDefault()
-    if (!productForm.name.trim() || productForm.price === '') {
+    const normalizedName = productForm.name.trim()
+    const normalizedImage = productForm.image.trim()
+    const rawPrice = productForm.price
+
+    if (!normalizedName || rawPrice === '') {
       setModalError('Заполните название и цену товара.')
       return
     }
-    const price = Number(productForm.price)
+
+    const price = Number(rawPrice)
     if (Number.isNaN(price) || price < 0) {
       setModalError('Цена должна быть положительным числом.')
       return
     }
 
-    const recipe = productForm.recipeRows
+    const recipeRows = productForm.recipeRows
+    const recipe = recipeRows
       .map((row) => ({
         ingredientId: row.ingredientId,
         amount: Number(row.amount),
@@ -268,10 +274,10 @@ function App() {
     }
 
     const product = {
-      id: `${productForm.name.trim().toLowerCase().replaceAll(' ', '_')}_${Date.now()}`,
-      name: productForm.name.trim(),
+      id: `${normalizedName.toLowerCase().replaceAll(' ', '_')}_${Date.now()}`,
+      name: normalizedName,
       price,
-      image: productForm.image.trim() || DEFAULT_PRODUCT_IMAGE,
+      image: normalizedImage || DEFAULT_PRODUCT_IMAGE,
       recipe,
     }
 
